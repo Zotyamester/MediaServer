@@ -1,40 +1,83 @@
-version: '3.6'
+version: '3'
 services:
+  traefik:
+    image: traefik:v2.10
+    command: --api.insecure=true --providers.docker
+    ports:
+      - "80:80"
+      - "8080:8080"
+    networks:
+      - internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
   jellyfin:
     image: linuxserver/jellyfin
-    container_name: jellyfin
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Budapest
-      - BASE_URL=/jelly
+      - JELLYFIN_PublishedServerUrl=/jellyfin
     volumes:
       - /var/jellyfin/config:/config
       - /var/jellyfin/cache:/cache
       - /var/shared_volume:/media
-    restart: unless-stopped
     ports:
-      - 8096:8096
-      - 8920:8920
+      - 8096
+      - 8920
+    networks:
+      - internal
+    labels:
+      - "traefik.http.routers.jellyfin.rule=PathPrefix(`/jellyfin`)"
   qbittorrent:
     image: linuxserver/qbittorrent
-    container_name: qbittorrent
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Budapest
-      - WEBUI_PORT=8081
     volumes:
       - /var/qbittorrent/config:/config
       - /var/shared_volume:/downloads
-    restart: unless-stopped
     ports:
-      - 8081:8081
-      - 6881:6881
-      - 6881:6881/udp
+      - 8080
+      - 6881/tcp
+      - 6881/udp
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      # adding a slash to the end
+      - "traefik.http.routers.qbittorrent-server.rule=PathPrefix(`/qbittorrent`)"
+      - "traefik.http.middlewares.qb-redirect.redirectregex.regex=^(.*)/qbittorrent$$"
+      - "traefik.http.middlewares.qb-redirect.redirectregex.replacement=$$1/qbittorrent/"
+      - "traefik.http.middlewares.qb-strip.stripprefix.prefixes=/qbittorrent/"
+      # appropropriate header changes
+      - "traefik.http.middlewares.qb-headers.headers.customrequestheaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.qb-headers.headers.customrequestheaders.Referer="
+      - "traefik.http.middlewares.qb-headers.headers.customrequestheaders.Origin="
+      - "traefik.http.routers.qbittorrent-server.middlewares=qb-strip,qb-redirect,qb-headers"
+      # loadbalancer to *not* pass the host header
+      - "traefik.http.services.qbittorrent-server.loadbalancer.server.port=8080"
+      - "traefik.http.services.qbittorrent-server.loadbalancer.passhostheader=false"
+  filebrowser:
+    image: filebrowser/filebrowser
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Budapest
+      - FB_BASEURL=/filebrowser
+    ports:
+      - 80
+    volumes:
+      - /var/shared_volume:/srv
+      - /var/filebrowser/filebrowser.db:/database.db
+      - /var/filebrowser/.filebrowser.json:/.filebrowser.json
+    networks:
+      - internal
+    labels:
+      - "traefik.http.routers.filebrowser.rule=PathPrefix(`/filebrowser`)"
+  # The VPN shall stand here alone (without any internal network connection).
   wireguard:
     image: linuxserver/wireguard
-    container_name: wireguard
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -42,25 +85,27 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Budapest
-      - SERVERURL=akari-gw.ddns.net
+      - SERVERURL=your-url.com
     ports:
       - 51820:51820/udp
     volumes:
       - /var/wireguard/config:/config
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
-    restart: unless-stopped
-  filebrowser:
-    image: filebrowser/filebrowser
-    container_name: filebrowser
+    labels:
+      - "traefik.enable=false"
+  status:
+    image: linuxserver/nginx
     environment:
-      - PUID=1000
-      - PGID=1000
       - TZ=Europe/Budapest
-      - FB_BASEURL=/fbrowser
     ports:
-      - 8080:80
+      - 80
     volumes:
-      - /var/shared_volume:/srv
-      - /var/filebrowser/filebrowser.db:/database.db
-      - /var/filebrowser/.filebrowser.json:/.filebrowser.json
+      - /var/status/config:/config
+      - /var/status/html:/config/www
+    networks:
+      - internal
+    labels:
+      - "traefik.http.routers.status.rule=PathPrefix(`/`)"
+networks:
+  internal:
