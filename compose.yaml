@@ -1,0 +1,94 @@
+services:
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.torrent-tcp.address=:6881/tcp"
+      - "--entryPoints.torrent-udp.address=:6881/udp"
+      - "--entryPoints.service-discovery.address=:1900/udp"
+      - "--entryPoints.client-discovery.address=:7359/udp"
+    ports:
+      - "80:80"
+      - "8080:8080"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  qbit:
+    image: linuxserver/qbittorrent:5.0.3
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Budapest
+    volumes:
+      - ./config/qbit:/config
+      - ./data:/downloads
+    ports:
+      - 8080
+      - 6881/tcp
+      - 6881/udp
+    labels:
+      - "traefik.enable=true"
+
+      - "traefik.udp.routers.qb-udp-router.entrypoints=torrent-udp"
+      - "traefik.tcp.routers.qb-tcp-router.rule=HostSNI(`*`)"
+      - "traefik.tcp.routers.qb-tcp-router.entrypoints=torrent-tcp"
+      - "traefik.http.routers.qb-router.entrypoints=web"
+      - "traefik.http.routers.qb-router.rule=PathPrefix(`/qbit`)"
+      - "traefik.http.routers.qb-router.middlewares=qb-strip,qb-redirect,qb-headers"
+
+      - "traefik.http.middlewares.qb-redirect.redirectregex.regex=^(.*)/qbit$$"
+      - "traefik.http.middlewares.qb-redirect.redirectregex.replacement=$$1/qbit/"
+      - "traefik.http.middlewares.qb-strip.stripprefix.prefixes=/qbit/"
+      - "traefik.http.middlewares.qb-headers.headers.customrequestheaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.qb-headers.headers.customrequestheaders.Referer="
+      - "traefik.http.middlewares.qb-headers.headers.customrequestheaders.Origin="
+
+      - "traefik.http.services.qb-service.loadbalancer.server.port=8080"
+      - "traefik.http.services.qb-service.loadbalancer.passhostheader=false"
+
+  fbrowser:
+    image: filebrowser/filebrowser:s6
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Budapest
+      - FB_BASEURL=/fbrowser
+    ports:
+      - 80
+    volumes:
+      - ./data:/srv
+      - ./config/fbrowser/database:/database
+      - ./config/fbrowser/settings:/config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.fbrowser-router.entrypoints=web"
+      - "traefik.http.routers.fbrowser-router.rule=PathPrefix(`/fbrowser`)"
+
+  jelly:
+    image: linuxserver/jellyfin:10.10.5
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Budapest
+      #- JELLYFIN_PublishedServerUrl
+    volumes:
+      - ./config/jelly:/config
+      - ./data/tvshows:/data/tvshows
+      - ./data/movies:/data/movies
+    ports:
+      - 8096 # HTTP
+      - 8920 # HTTPS
+      - 1900/udp # service discovery
+      - 7359/udp # client discovery
+    devices:
+      - /dev/dri:/dev/dri
+    labels:
+      - "traefik.enable=true"
+      - "traefik.udp.routers.jelly-router.entrypoints=service-discovery,client-discovery"
