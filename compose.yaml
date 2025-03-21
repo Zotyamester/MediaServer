@@ -5,6 +5,11 @@ services:
     command:
       - "--api.insecure=true"
       - "--providers.docker.exposedByDefault=false"
+      - "--log.filePath=/var/log/traefik/traefik.log"
+      - "--log.format=json"
+      - "--log.level=DEBUG"
+      - "--log.maxsize=10"
+      - "--accesslog=true"
       - "--entryPoints.web.address=:80"
       - "--entryPoints.torrent-tcp.address=:6881/tcp"
       - "--entryPoints.torrent-udp.address=:6881/udp"
@@ -17,6 +22,7 @@ services:
       - "6881:6881/udp"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${LOG_STORAGE}/traefik:/var/log/traefik
 
   qbit:
     image: linuxserver/qbittorrent:5.0.3
@@ -25,9 +31,10 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Budapest
+      - UMASK=022
     volumes:
-      - ./config/qbit:/config
-      - ./data:/downloads
+      - ${CONFIG_STORAGE}/qbit:/config
+      - ${DATA_STORAGE}/torrents:/downloads
     ports:
       - 8080
       - 6881/tcp
@@ -58,13 +65,14 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Budapest
+      - UMASK=022
       - FB_BASEURL=/fbrowser
     ports:
       - 80
     volumes:
-      - ./data:/srv
-      - ./config/fbrowser/database:/database
-      - ./config/fbrowser/settings:/config
+      - ${DATA_STORAGE}:/srv
+      - ${CONFIG_STORAGE}/fbrowser/database:/database
+      - ${CONFIG_STORAGE}/fbrowser/settings:/config
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.fbrowser-router.entrypoints=web"
@@ -77,18 +85,38 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Budapest
-      #- JELLYFIN_PublishedServerUrl
+      - UMASK=022
     volumes:
-      - ./config/jelly:/config
-      - ./data/tvshows:/data/tvshows
-      - ./data/movies:/data/movies
+      - ${CONFIG_STORAGE}/jelly:/config
+      - ${DATA_STORAGE}/media:/data/media
     ports:
-      - 8096 # HTTP
-      - 8920 # HTTPS
+      - 8096:8096 # HTTP
+      #- 8920 # HTTPS, but I guess it's not needed since we have TLS termination with Traefik
       - 1900/udp # service discovery
       - 7359/udp # client discovery
     devices:
       - /dev/dri:/dev/dri
     labels:
       - "traefik.enable=true"
-      - "traefik.udp.routers.jelly-router.entrypoints=service-discovery,client-discovery"
+      - "traefik.udp.routers.jelly-udp-router.entrypoints=service-discovery,client-discovery"
+      - "traefik.http.routers.jelly-http-router.entrypoints=web"
+      - "traefik.http.routers.jelly-http-router.rule=PathPrefix(`/jelly`)"
+      - "traefik.services.jelly-service.loadbalancer.server.port=8096"
+
+  sonarr:
+    image: linuxserver/sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Budapest
+      - UMASK=022
+    ports:
+      - 8989
+    volumes:
+      - ${CONFIG_STORAGE}/sonarr:/config
+      - ${DATA_STORAGE}:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr-router.entrypoints=web"
+      - "traefik.http.routers.sonarr-router.rule=PathPrefix(`/sonarr`)"
+      - "traefik.services.sonarr-service.loadbalancer.server.port=8989"

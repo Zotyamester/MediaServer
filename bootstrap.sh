@@ -1,8 +1,7 @@
 #!/bin/bash
-# TODOs prior to building the containers
-echo "<BaseUrl>/jellyfin</BaseUrl>" > "/var/jellyfin/config/network.xml"
-touch /var/filebrowser/filebrowser.db
-cp .filebrowser.json /var/filebrowser/
+
+# "<BaseUrl>/jellyfin</BaseUrl>" --> "/var/jellyfin/config/network.xml"
+# "<UrlBase>/sonarr</UrlBase>" --> "./config/sonarr/config.xml"
 
 # build the containers
 docker compose up -d

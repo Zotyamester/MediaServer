@@ -1,0 +1,5 @@
+<Config>
+  <AuthenticationMethod>External</AuthenticationMethod>
+  <AuthenticationRequired>Enabled</AuthenticationRequired>
+  <UrlBase>/sonarr</UrlBase>
+</Config>
